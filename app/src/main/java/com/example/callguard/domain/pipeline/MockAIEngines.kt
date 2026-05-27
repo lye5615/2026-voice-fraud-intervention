@@ -47,24 +47,16 @@ class MockSpeechRecognizer : SpeechRecognizer {
         }
         val rms = sqrt(sum / (pcmData.size / 2))
 
-        // Simple threshold to detect active speaking
+        // Simple threshold to detect active speaking (logged for research validation)
         val voiceThreshold = 500.0
         if (rms > voiceThreshold) {
             if (!isSpeaking) {
                 isSpeaking = true
-                Log.d(TAG, "Speech detected (RMS: $rms)")
-            }
-            frameCounter++
-
-            // Every ~1.5 seconds of active speaking (assuming 10ms frames fed in), emit a script phrase
-            if (frameCounter >= 150) {
-                emitNextScriptPhrase()
-                frameCounter = 0
+                Log.d(TAG, "Speech detected (RMS: $rms) - Auto script emission is disabled.")
             }
         } else {
             if (isSpeaking) {
                 isSpeaking = false
-                Log.d(TAG, "Speech paused (RMS: $rms)")
             }
         }
     }
