@@ -17,6 +17,15 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 /**
+ * Represents a line in the call transcript, which can be partial (live typing) or final.
+ */
+data class TranscriptItem(
+    val speaker: String,
+    val text: String,
+    val isFinal: Boolean
+)
+
+/**
  * CallViewModel coordinates the UI state with the CallService backend.
  * Handles binding to the Service and translating flows into Compose states.
  */
@@ -34,9 +43,9 @@ class CallViewModel : ViewModel() {
     private val _callState = MutableStateFlow(CallService.CallState.IDLE)
     val callState: StateFlow<CallService.CallState> = _callState.asStateFlow()
 
-    // Real-time transcript state
-    private val _transcripts = MutableStateFlow<List<Pair<String, String>>>(emptyList())
-    val transcripts: StateFlow<List<Pair<String, String>>> = _transcripts.asStateFlow()
+    // Real-time transcript state (uses custom TranscriptItem for partial live updating)
+    private val _transcripts = MutableStateFlow<List<TranscriptItem>>(emptyList())
+    val transcripts: StateFlow<List<TranscriptItem>> = _transcripts.asStateFlow()
 
     // Real-time risk scoring
     private val _riskScore = MutableStateFlow(RiskScore(0.0f, RiskLevel.SAFE, emptyList()))
@@ -71,9 +80,17 @@ class CallViewModel : ViewModel() {
                 }
             }
 
+            // Collect finalized speech recognition segments
             viewModelScope.launch {
                 boundService.audioPipeline.transcriptFlow.collect { pair ->
-                    _transcripts.value = _transcripts.value + pair
+                    updateTranscript(pair.first, pair.second, isFinal = true)
+                }
+            }
+
+            // Collect real-time partial (live) speech recognition results
+            viewModelScope.launch {
+                boundService.audioPipeline.partialTranscriptFlow.collect { pair ->
+                    updateTranscript(pair.first, pair.second, isFinal = false)
                 }
             }
 
@@ -164,8 +181,26 @@ class CallViewModel : ViewModel() {
         callService?.remoteSpeechRecognizer?.injectPhrase(phrase)
     }
 
+    private fun updateTranscript(speaker: String, text: String, isFinal: Boolean) {
+        val currentList = _transcripts.value.toMutableList()
+        if (currentList.isNotEmpty()) {
+            val lastIndex = currentList.size - 1
+            val lastItem = currentList[lastIndex]
+            if (lastItem.speaker == speaker && !lastItem.isFinal) {
+                // Update the last partial/live transcription segment
+                currentList[lastIndex] = TranscriptItem(speaker, text, isFinal)
+            } else {
+                // Append as a new transcript line
+                currentList.add(TranscriptItem(speaker, text, isFinal))
+            }
+        } else {
+            currentList.add(TranscriptItem(speaker, text, isFinal))
+        }
+        _transcripts.value = currentList
+    }
+
     private fun resetUiStates() {
-        _transcripts.value = emptyList()
+        _transcripts.value = emptyList<TranscriptItem>()
         _riskScore.value = RiskScore(0.0f, RiskLevel.SAFE, emptyList())
         _showWarningOverlay.value = false
         _isLocalMuted.value = false

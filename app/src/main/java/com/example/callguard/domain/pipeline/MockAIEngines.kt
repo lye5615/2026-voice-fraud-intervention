@@ -24,6 +24,9 @@ class MockSpeechRecognizer(private val context: Context) : SpeechRecognizer {
     private val _transcript = MutableSharedFlow<String>(extraBufferCapacity = 64)
     override val transcript: SharedFlow<String> = _transcript
 
+    private val _partialTranscript = MutableSharedFlow<String>(extraBufferCapacity = 64)
+    override val partialTranscript: SharedFlow<String> = _partialTranscript
+
     private var isSpeaking = false
     
     // Vosk Model & Recognizer
@@ -76,9 +79,17 @@ class MockSpeechRecognizer(private val context: Context) : SpeechRecognizer {
             val resultJson = rec.result
             val text = parseVoskJson(resultJson, "text")
             if (text.isNotBlank()) {
-                Log.d(TAG, "Speech Transcribed: $text")
+                Log.d(TAG, "Speech Transcribed (Final): $text")
                 scope.launch {
                     _transcript.emit(text)
+                }
+            }
+        } else {
+            val partialJson = rec.partialResult
+            val partialText = parseVoskJson(partialJson, "partial")
+            if (partialText.isNotBlank()) {
+                scope.launch {
+                    _partialTranscript.emit(partialText)
                 }
             }
         }

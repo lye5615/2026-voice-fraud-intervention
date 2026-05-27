@@ -25,6 +25,7 @@ data class RiskScore(
  */
 interface SpeechRecognizer {
     val transcript: SharedFlow<String>
+    val partialTranscript: SharedFlow<String>
     fun feedAudio(pcmData: ByteArray, sampleRate: Int, channels: Int)
     fun reset()
 }

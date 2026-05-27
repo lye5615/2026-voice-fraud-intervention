@@ -23,6 +23,9 @@ class AudioProcessingPipeline(
     private val _transcriptFlow = MutableSharedFlow<Pair<String, String>>(extraBufferCapacity = 64) // speaker to text
     val transcriptFlow: SharedFlow<Pair<String, String>> = _transcriptFlow
 
+    private val _partialTranscriptFlow = MutableSharedFlow<Pair<String, String>>(extraBufferCapacity = 64)
+    val partialTranscriptFlow: SharedFlow<Pair<String, String>> = _partialTranscriptFlow
+
     val riskScoreFlow: SharedFlow<RiskScore> = scamDetector.riskState
 
     init {
@@ -34,10 +37,26 @@ class AudioProcessingPipeline(
             }
         }
 
+        // Collect partial transcripts from local speaker
+        scope.launch {
+            localSpeechRecognizer.partialTranscript.collect { text ->
+                _partialTranscriptFlow.emit("LOCAL" to text)
+                scamDetector.analyzeText(text)
+            }
+        }
+
         // Collect transcripts from remote participant
         scope.launch {
             remoteSpeechRecognizer.transcript.collect { text ->
                 _transcriptFlow.emit("REMOTE" to text)
+                scamDetector.analyzeText(text)
+            }
+        }
+
+        // Collect partial transcripts from remote participant
+        scope.launch {
+            remoteSpeechRecognizer.partialTranscript.collect { text ->
+                _partialTranscriptFlow.emit("REMOTE" to text)
                 scamDetector.analyzeText(text)
             }
         }
