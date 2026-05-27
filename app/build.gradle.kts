@@ -82,6 +82,10 @@ dependencies {
     // WebRTC Android Library
     implementation("im.conversations.webrtc:webrtc-android:129.0.0")
 
+    // Vosk STT Library
+    implementation("net.java.dev.jna:jna:5.13.0@aar")
+    implementation("com.alphacephei:vosk-android:0.3.32")
+
     // Testing
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")

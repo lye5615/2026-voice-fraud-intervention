@@ -69,8 +69,8 @@ class CallService : LifecycleService() {
         createNotificationChannel()
 
         // 1. Initialize Mock AI modules
-        localSpeechRecognizer = MockSpeechRecognizer()
-        remoteSpeechRecognizer = MockSpeechRecognizer()
+        localSpeechRecognizer = MockSpeechRecognizer(this)
+        remoteSpeechRecognizer = MockSpeechRecognizer(this)
         scamDetector = MockScamDetector()
         
         val mockIntervention = MockInterventionEngine { riskLevel ->

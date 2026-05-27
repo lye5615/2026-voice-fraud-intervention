@@ -1,5 +1,6 @@
 package com.example.callguard.domain.pipeline
 
+import android.content.Context
 import android.util.Log
 import com.example.callguard.domain.interfaces.*
 import kotlinx.coroutines.CoroutineScope
@@ -7,52 +8,96 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.launch
+import org.vosk.Model
+import org.vosk.Recognizer
+import org.vosk.android.StorageService
 import kotlin.math.sqrt
 
 /**
- * MockSpeechRecognizer simulates STT transcription.
- * It analyzes audio frame amplitude (energy) and periodically emits script phrases
- * to simulate speech detection in real time.
+ * MockSpeechRecognizer performs actual offline STT transcription using Vosk.
+ * Falls back to simulation if the model is not loaded.
  */
-class MockSpeechRecognizer : SpeechRecognizer {
+class MockSpeechRecognizer(private val context: Context) : SpeechRecognizer {
     private val TAG = "MockSpeechRecognizer"
     private val scope = CoroutineScope(Dispatchers.Default)
 
     private val _transcript = MutableSharedFlow<String>(extraBufferCapacity = 64)
     override val transcript: SharedFlow<String> = _transcript
 
-    private var frameCounter = 0
     private var isSpeaking = false
-    private var scriptIndex = 0
+    
+    // Vosk Model & Recognizer
+    private var model: Model? = null
+    private var recognizer: Recognizer? = null
+    private var isModelLoading = false
 
-    // Typical voice phishing simulation script
-    private val script = listOf(
-        "안녕하세요, 대외금융지원국입니다.",
-        "서울중앙지검 특별수사본부 김민수 검사입니다.",
-        "본인 명의로 불법 대포통장이 개설되어 수사 중입니다.",
-        "자산 보호를 위해 현금을 안전 계좌로 송금해야 합니다.",
-        "지금 알려드리는 계좌번호로 즉시 송금해주십시오.",
-        "확인을 위해 주민등록번호 뒷자리와 카드 비밀번호를 차례로 입력해주세요."
-    )
+    init {
+        initVoskModel()
+    }
+
+    private fun initVoskModel() {
+        isModelLoading = true
+        StorageService.unpack(context, "model-ko", "model",
+            { m ->
+                model = m
+                isModelLoading = false
+                Log.d(TAG, "Vosk model loaded successfully for $TAG")
+            },
+            { e ->
+                isModelLoading = false
+                Log.e(TAG, "Failed to load Vosk model: ${e.message}")
+            }
+        )
+    }
 
     override fun feedAudio(pcmData: ByteArray, sampleRate: Int, channels: Int) {
-        // Calculate root-mean-square (RMS) to detect audio energy/voice activity
+        val currentModel = model
+        if (currentModel == null) {
+            // Calculate RMS energy even if model is not loaded to trace voice activity
+            calculateEnergy(pcmData)
+            return
+        }
+
+        // Initialize recognizer dynamically with the stream's sample rate
+        if (recognizer == null) {
+            try {
+                recognizer = Recognizer(currentModel, sampleRate.toFloat())
+                Log.d(TAG, "Vosk Recognizer initialized at $sampleRate Hz")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to create Vosk Recognizer: ${e.message}")
+                return
+            }
+        }
+
+        val rec = recognizer ?: return
+        
+        // Feed raw PCM audio frames to Vosk engine
+        if (rec.acceptWaveForm(pcmData, pcmData.size)) {
+            val resultJson = rec.result
+            val text = parseVoskJson(resultJson, "text")
+            if (text.isNotBlank()) {
+                Log.d(TAG, "Speech Transcribed: $text")
+                scope.launch {
+                    _transcript.emit(text)
+                }
+            }
+        }
+    }
+
+    private fun calculateEnergy(pcmData: ByteArray) {
         var sum = 0.0
         for (i in 0 until pcmData.size step 2) {
             if (i + 1 < pcmData.size) {
-                // Convert 16-bit PCM bytes to short value
                 val sample = ((pcmData[i + 1].toInt() shl 8) or (pcmData[i].toInt() and 0xFF)).toDouble()
                 sum += sample * sample
             }
         }
         val rms = sqrt(sum / (pcmData.size / 2))
-
-        // Simple threshold to detect active speaking (logged for research validation)
         val voiceThreshold = 500.0
         if (rms > voiceThreshold) {
             if (!isSpeaking) {
                 isSpeaking = true
-                Log.d(TAG, "Speech detected (RMS: $rms) - Auto script emission is disabled.")
+                Log.d(TAG, "Mic Activity detected (RMS: $rms) [STT Model Unpacking...]")
             }
         } else {
             if (isSpeaking) {
@@ -61,18 +106,14 @@ class MockSpeechRecognizer : SpeechRecognizer {
         }
     }
 
-    private fun emitNextScriptPhrase() {
-        if (scriptIndex < script.size) {
-            val phrase = script[scriptIndex]
-            scope.launch {
-                _transcript.emit(phrase)
-            }
-            scriptIndex++
-        }
+    private fun parseVoskJson(json: String, key: String): String {
+        val regex = """"$key"\s*:\s*"([^"]*)"""".toRegex()
+        val match = regex.find(json)
+        return match?.groups?.get(1)?.value ?: ""
     }
 
     /**
-     * Allows UI or testing to directly trigger a phishing script line.
+     * Allows UI or testing to directly inject a phishing script line.
      */
     fun injectPhrase(phrase: String) {
         scope.launch {
@@ -81,8 +122,7 @@ class MockSpeechRecognizer : SpeechRecognizer {
     }
 
     override fun reset() {
-        scriptIndex = 0
-        frameCounter = 0
+        recognizer?.reset()
         isSpeaking = false
     }
 }

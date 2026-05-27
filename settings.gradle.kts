@@ -10,7 +10,7 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-        // WebRTC or any custom maven repositories if needed
+        maven { url = uri("https://alphacephei.com/maven/") }
     }
 }
 rootProject.name = "CallGuard"
